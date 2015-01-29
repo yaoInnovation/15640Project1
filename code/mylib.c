@@ -12,6 +12,7 @@
 #include <netinet/ip.h>
 #include <string.h>
 #include <err.h>
+#include "pktGenerate.h"
 #include "dirtree.h"
 //#include <unistd.h>
 
@@ -81,7 +82,7 @@ int connectServer() {
 	return sockfd;
 }
 
-int sendMsg(int sockfd, const char* msg) {
+int sendMsg(int sockfd, char* msg) {
 	// send message to server
 	send(sockfd, msg, strlen(msg), 0);	// send message; should check return value
 	return 0;
@@ -102,9 +103,11 @@ int close(int fd) {
 	int val = 0;
 	// init network
 	int sock = connectServer();
+	// contruct pkt
+	char* pkt = closePktGen(fd);
 	// send request
-	sendMsg(sock,"close");
-	val = orig_close(sock);
+	sendMsg(sock,pkt); free(pkt);
+	orig_close(sock);
 	val = orig_close(fd);
 	//printf("mylib: close called\n");
 	return val;
@@ -112,15 +115,19 @@ int close(int fd) {
 
 // This is our replacement for the open function from libc.
 int open(const char *pathname, int flags, ...) {
+	printf("%s\n",pathname);
+	printf("%d\n",flags);
 	// init network
 	int sock = connectServer();
 	int fd = 0;
+	// contruct pkt
+	char* pkt = openPktGen(pathname,flags);
 	// send request
-	sendMsg(sock,"open");
+	sendMsg(sock,pkt); free(pkt);
 	// we just print a message, then call through to the original open function (from libc)
 	orig_close(sock);
 	fd = orig_open(pathname,flags);
-	//printf("mylib: open called for path %s\n", pathname);
+	printf("mylib: open called for path %s\n", pathname);
 	return fd;
 }
 
@@ -149,12 +156,14 @@ int read(int fd, void *buffer, int nbyte) {
  *  @return the actual bytes that have been written
  */
 int write(int fd, void* buffer, int nbyte) {
+	printf("mylib: write called\n");
 	int val = 0;
 	// init network
 	int sock = connectServer();
-	
+	// contruct pkt
+	char* pkt = writePktGen(fd,buffer,nbyte);
 	// send request
-	sendMsg(sock,"write");
+	sendMsg(sock,pkt); free(pkt);
 	orig_close(sock);
 	val = orig_write(fd,buffer,nbyte);
 	//printf("mylib: write called\n");
