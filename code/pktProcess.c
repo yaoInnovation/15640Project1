@@ -5,24 +5,25 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
-
+#include <unistd.h>
 
 #define MAX_PKT_SIZE 8192
 
-int openPkt(char* buf) {
+int openPkt(char* buf, int* err) {
 	int flags;
 	char* indexStart = 0;
 	char* indexEnd = 0;
 	int reVal = 0;
-	mode_t mode;
+	mode_t mode = 0;
 	char filename[200];
 	char buffer[200]; // maximum file name
 	memset(buffer,0,200);
+	memset(filename,0,200);
 	// get filename
 	indexStart = strchr(buf,' ')+1;
 	indexEnd = strchr(indexStart, ' ');
 	strncpy(buffer, indexStart, (int)(indexEnd-indexStart));
-	strcpy(filename,buffer); filename[strlen(filename)] = '\0';
+	strcpy(filename,buffer); filename[(int)(indexEnd-indexStart)] = '\0';
 
 	// get flags;
 	memset(buffer,0,200);
@@ -36,16 +37,18 @@ int openPkt(char* buf) {
 	indexEnd = strchr(indexStart, '\n');
 	strncpy(buffer, indexStart,(int)(indexEnd-indexStart));
 	mode = atoi(buffer);
-	if( flags & O_CREAT)
+	//printf("Exist?:%d\n",access(filename,F_OK));
+	if( (flags & O_CREAT) && access(filename,F_OK) == -1)
 		reVal = open(filename,flags,mode);
 	else
 		reVal = open(filename,flags);
 
 	//printf("open %s flags:%d mode:%d,%d called\n",filename, flags, mode, reVal);
+	*err = errno;
 	return reVal;
 }
 
-int writePkt(char* buf) {
+int writePkt(char* buf, int* err) {
 	char* indexStart = 0;
 	char* indexEnd = 0;
 	int reVal = 0;
@@ -71,12 +74,12 @@ int writePkt(char* buf) {
 	indexStart = indexEnd+1;
 	memcpy(content,indexStart,size);
 	reVal = write(fd,content,size);
-
+	*err = errno;
 	//printf("write %d %d:\n%s\ncalled\nreturn:%d\n",fd, size, content,reVal);
 	return reVal;
 }
 
-int closePkt(char* buf) {
+int closePkt(char* buf,int* err) {
 	char* indexStart = 0;
 	char* indexEnd = 0;
 	int reVal = 0;
@@ -90,12 +93,13 @@ int closePkt(char* buf) {
 	strncpy(buffer, indexStart, (int)(indexEnd-indexStart));
 	fd = atoi(buffer);
 	reVal = close(fd);
+	*err = errno;
 	//printf("close %d called\n",fd);
 	return reVal;
 }
 
-char* rePktGen(int val) {
+char* rePktGen(int val, int err) {
 	char* pkt = (char*)malloc(200);
-	sprintf(pkt,"RETURN:%d, ERRNO:%d\n", val, errno);
+	sprintf(pkt,"RETURN:%d, ERRNO:%d\n", val, err);
 	return pkt;
 }

@@ -91,24 +91,23 @@ int sendMsg(int sockfd, char* msg) {
 
 int readMsg(int sockfd, int* reVal, int* err) {
 	int nbyte = 0;
-	char buffer[200];
-	char tmp[200];
+	char buffer[200] = {0};
+	char tmp[200] = {0};
 	char* indexStart;
 	char* indexEnd;
 	
 	// read message from server
 	if((nbyte = recv(sockfd,buffer,200,0)) > 0) {
-
 		// get return value
 		indexStart = strstr(buffer,"RETURN:") + strlen("RETURN:");
 		indexEnd = strchr(indexStart,' ');
 		strncpy(tmp,indexStart,indexEnd-indexStart); tmp[strlen(tmp)] = '\0';
-		*reVal = atoi(tmp);
+		*reVal = atoi(tmp);memset(tmp,0,200);
 
 		// get errno number
 		indexStart = strstr(indexEnd+1,"ERRNO:")+strlen("ERRNO:");
 		indexEnd = strchr(indexStart,'\n');
-		strncpy(tmp,indexStart,indexEnd-indexStart); tmp[strlen(tmp)] = '\0';
+		strncpy(tmp,indexStart,indexEnd-indexStart); //tmp[strlen(tmp)] = '\0';
 		*err = atoi(tmp);
 	}
 	return nbyte;
@@ -129,16 +128,14 @@ int close(int fd) {
 	sendMsg(sock,pkt); free(pkt);
 	// get feedback
 	readMsg(sock,&reVal,&err);
-	errno = err;
-	
 	orig_close(sock);
+	errno = err;
 	return reVal;
 }
 
 // This is our replacement for the open function from libc.
 int open(const char *pathname, int flags, ...) {
 	
-	printf("pathname:%s\n", pathname );
 	mode_t m=0;
 	if (flags & O_CREAT) {
 		va_list a;
@@ -157,9 +154,8 @@ int open(const char *pathname, int flags, ...) {
 	sendMsg(sock,pkt); free(pkt);
 	// get feedback
 	readMsg(sock,&reVal,&err);
-	errno = err;
-	
 	orig_close(sock);
+	errno = err;
 	//printf("mylib: open called for path %s\n", pathname);
 	return reVal;
 }
@@ -189,7 +185,8 @@ int read(int fd, void *buffer, int nbyte) {
  *  @return the actual bytes that have been written
  */
 int write(int fd, void* buffer, int nbyte) {
-	int reVal, err =0;
+	int reVal = 0;
+	int err = 0;
 	// init network
 	int sock = connectServer();
 	// contruct pkt
@@ -200,9 +197,8 @@ int write(int fd, void* buffer, int nbyte) {
 	//printf("with \\0, size:%d\n", size);
 	// get feedback
 	readMsg(sock,&reVal,&err);
-	errno = err;
-
 	orig_close(sock);
+	errno = err;
 	//printf("mylib: write called,return %d\n", reVal);
 	return reVal;
 }

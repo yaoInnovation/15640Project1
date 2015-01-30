@@ -1,4 +1,4 @@
-int openPkt(char* buf);
-int writePkt(char* buf);
-int closePkt(char* buf);
-char* rePktGen(int val);
+int openPkt(char* buf, int* err);
+int writePkt(char* buf, int* err);
+int closePkt(char* buf, int* err);
+char* rePktGen(int val, int err);

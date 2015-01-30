@@ -54,20 +54,21 @@ int main(int argc, char**argv) {
 		// get messages and send replies to this client, until it goes away
 		while ( (rv=recv(sessfd, buf, MAXMSGLEN, 0)) > 0) {
 			int reVal = 0;
+			int err = 0;
 			// check first line
 			if(strstr(buf,"\n") != NULL) {
 				//check pkt type
 				if(strncmp(buf, "OPEN",4) == 0) 
-					reVal = openPkt(buf);
+					reVal = openPkt(buf,&err);
 				if(strncmp(buf, "CLOSE",5) == 0) 
-					reVal = closePkt(buf);
+					reVal = closePkt(buf,&err);
 				if(strncmp(buf, "WRITE",5) == 0) 
-					reVal = writePkt(buf);
+					reVal = writePkt(buf,&err);
 			}
 
 
 			// send return val back
-			char* rePkt = rePktGen(reVal);
+			char* rePkt = rePktGen(reVal,err);
 			send(sessfd,rePkt,strlen(rePkt),0);
 			free(rePkt);
 			memset(buf,0,MAXMSGLEN);
