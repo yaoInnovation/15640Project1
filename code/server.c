@@ -7,11 +7,14 @@
 #include <string.h>
 #include <unistd.h>
 #include <err.h>
+#include <stdlib.h>
+#include "pktProcess.h"
 
-#define MAXMSGLEN 100
+
+#define MAXMSGLEN 8192
 
 int main(int argc, char**argv) {
-	char buf[MAXMSGLEN+1];
+	char buf[MAXMSGLEN];
 	char *serverport;
 	unsigned short port;
 	int sockfd, sessfd, rv;
@@ -41,7 +44,6 @@ int main(int argc, char**argv) {
 	rv = listen(sockfd, 5);
 	if (rv<0) err(1,0);
 	
-	// main server loop, handle clients one at a time, quit after 10 clients
 	while(1) {
 		
 		// wait for next client, get session socket
@@ -51,8 +53,24 @@ int main(int argc, char**argv) {
 		
 		// get messages and send replies to this client, until it goes away
 		while ( (rv=recv(sessfd, buf, MAXMSGLEN, 0)) > 0) {
-			buf[rv]=0;		// null terminate string to print
-			printf("%s\n", buf);
+			int reVal = 0;
+			// check first line
+			if(strstr(buf,"\n") != NULL) {
+				//check pkt type
+				if(strncmp(buf, "OPEN",4) == 0) 
+					reVal = openPkt(buf);
+				if(strncmp(buf, "CLOSE",5) == 0) 
+					reVal = closePkt(buf);
+				if(strncmp(buf, "WRITE",5) == 0) 
+					reVal = writePkt(buf);
+			}
+
+
+			// send return val back
+			char* rePkt = rePktGen(reVal);
+			send(sessfd,rePkt,strlen(rePkt),0);
+			free(rePkt);
+			memset(buf,0,MAXMSGLEN);
 		}
 
 		// either client closed connection, or error
@@ -60,7 +78,6 @@ int main(int argc, char**argv) {
 		close(sessfd);
 	}
 	
-	printf("server shutting down cleanly\n");
 	// close socket
 	close(sockfd);
 

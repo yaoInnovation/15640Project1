@@ -7,7 +7,7 @@
 
 #define MAX_PKT_SIZE 8192
 
-char* openPktGen(const char *pathname, int flags, ...);
+char* openPktGen(const char *pathname, int flags, mode_t);
 char* writePktGen(int fd, void* buffer, int nbyte);
 char* closePktGen(int fd);
 

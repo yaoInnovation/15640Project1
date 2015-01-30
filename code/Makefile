@@ -14,18 +14,22 @@ mylib.o: mylib.c pktGenerate.h
 mylib.so: mylib.o pktGenerate.o
 	ld -shared $(LIBRARY) -o mylib.so mylib.o pktGenerate.o -ldl
 
-server: server.o
-	gcc server.o -o server
+server: server.o pktProcess.o
+	gcc server.o pktProcess.o -o server
 
-server.o: server.c
+server.o: server.c pktProcess.h
 	gcc -Wall -fPIC -DPIC -c server.c
 
 pktGenerate.o: pktGenerate.c pktGenerate.h
 	gcc -Wall -fPIC -DPIC -c pktGenerate.c
 
+pktProcess.o: pktProcess.c pktProcess.h
+	gcc -Wall -fPIC -DPIC -c pktProcess.c
+
+
 clean:
 	rm -f *.o *.so server
 
 handin:
-	tar czvf ../mysolution.tgz Makefile mylib.c server.c 
+	tar czvf ../mysolution.tgz Makefile *.c *.h
 

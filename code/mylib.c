@@ -12,6 +12,7 @@
 #include <netinet/ip.h>
 #include <string.h>
 #include <err.h>
+#include <errno.h>
 #include "pktGenerate.h"
 #include "dirtree.h"
 //#include <unistd.h>
@@ -88,10 +89,29 @@ int sendMsg(int sockfd, char* msg) {
 	return 0;
 }
 
-int readMsg(int sockfd, const char* msg) {
+int readMsg(int sockfd, int* reVal, int* err) {
+	int nbyte = 0;
+	char buffer[200];
+	char tmp[200];
+	char* indexStart;
+	char* indexEnd;
+	
 	// read message from server
-	send(sockfd, msg, strlen(msg), 0);
-	return 0;
+	if((nbyte = recv(sockfd,buffer,200,0)) > 0) {
+
+		// get return value
+		indexStart = strstr(buffer,"RETURN:") + strlen("RETURN:");
+		indexEnd = strchr(indexStart,' ');
+		strncpy(tmp,indexStart,indexEnd-indexStart); tmp[strlen(tmp)] = '\0';
+		*reVal = atoi(tmp);
+
+		// get errno number
+		indexStart = strstr(indexEnd+1,"ERRNO:")+strlen("ERRNO:");
+		indexEnd = strchr(indexStart,'\n');
+		strncpy(tmp,indexStart,indexEnd-indexStart); tmp[strlen(tmp)] = '\0';
+		*err = atoi(tmp);
+	}
+	return nbyte;
 }
 
 /** @brief our repleace ment for the close function from libc
@@ -100,35 +120,48 @@ int readMsg(int sockfd, const char* msg) {
  *	with errno set appropriately.
  */
 int close(int fd) {
-	int val = 0;
+	int reVal, err = 0;
 	// init network
 	int sock = connectServer();
 	// contruct pkt
 	char* pkt = closePktGen(fd);
 	// send request
 	sendMsg(sock,pkt); free(pkt);
+	// get feedback
+	readMsg(sock,&reVal,&err);
+	errno = err;
+	
 	orig_close(sock);
-	val = orig_close(fd);
-	//printf("mylib: close called\n");
-	return val;
+	return reVal;
 }
 
 // This is our replacement for the open function from libc.
 int open(const char *pathname, int flags, ...) {
-	printf("%s\n",pathname);
-	printf("%d\n",flags);
+	
+	printf("pathname:%s\n", pathname );
+	mode_t m=0;
+	if (flags & O_CREAT) {
+		va_list a;
+		va_start(a, flags);
+		m = va_arg(a, mode_t);
+		va_end(a);
+	}
+
 	// init network
 	int sock = connectServer();
-	int fd = 0;
+	int reVal = 0;
+	int err = 0;
 	// contruct pkt
-	char* pkt = openPktGen(pathname,flags);
+	char* pkt = openPktGen(pathname,flags,m);
 	// send request
 	sendMsg(sock,pkt); free(pkt);
-	// we just print a message, then call through to the original open function (from libc)
+	// get feedback
+	readMsg(sock,&reVal,&err);
+	errno = err;
+	
 	orig_close(sock);
-	fd = orig_open(pathname,flags);
-	printf("mylib: open called for path %s\n", pathname);
-	return fd;
+	//printf("mylib: open called for path %s\n", pathname);
+	return reVal;
 }
 
 /** @brief our repleace ment for the read function from libc
@@ -156,18 +189,22 @@ int read(int fd, void *buffer, int nbyte) {
  *  @return the actual bytes that have been written
  */
 int write(int fd, void* buffer, int nbyte) {
-	printf("mylib: write called\n");
-	int val = 0;
+	int reVal, err =0;
 	// init network
 	int sock = connectServer();
 	// contruct pkt
 	char* pkt = writePktGen(fd,buffer,nbyte);
 	// send request
-	sendMsg(sock,pkt); free(pkt);
+
+	send(sock,pkt,nbyte+strchr(pkt,'\n')-pkt+1,0); free(pkt);
+	//printf("with \\0, size:%d\n", size);
+	// get feedback
+	readMsg(sock,&reVal,&err);
+	errno = err;
+
 	orig_close(sock);
-	val = orig_write(fd,buffer,nbyte);
-	//printf("mylib: write called\n");
-	return val;
+	//printf("mylib: write called,return %d\n", reVal);
+	return reVal;
 }
 
 int stat(const char *path, struct stat *buf) {
