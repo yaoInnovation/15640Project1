@@ -40,3 +40,15 @@ char* closePktGen(int fd) {
 	//printf("CLSOE PKT:\n%s\n",pkt);
 	return pkt;
 }
+
+char* readPktGen(int fd, int nbyte) {
+	char* pkt = (char*)malloc(MAX_PKT_SIZE);
+	memset(pkt,0,MAX_PKT_SIZE);
+	strcpy(pkt,"READ ");
+	sprintf(pkt+strlen(pkt), "%d", fd);
+	strcat(pkt, " ");
+	sprintf(pkt+strlen(pkt), "%d", nbyte);
+	strcat(pkt, "\n\n");
+	//printf("READ PKT:\n%s\n",pkt);
+	return pkt;
+}
