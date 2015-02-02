@@ -30,7 +30,7 @@ struct dirtreenode* (*orig_getdirtree)( const char *path );
 void (*orig_freedirtree)( struct dirtreenode* dt );
 int (*orig_close)(int fd);
 
-#define MAXMSGLEN 1024
+#define MAXMSGLEN 8192
 
 int sockfd = 0;
 
@@ -91,18 +91,18 @@ int sendMsg(int sockfd, char* msg) {
 
 int readMsg(int sockfd, int* reVal, int* err) {
 	int nbyte = 0;
-	char buffer[200] = {0};
-	char tmp[200] = {0};
+	char buffer[MAX_PATHNAME] = {0};
+	char tmp[MAX_PATHNAME] = {0};
 	char* indexStart;
 	char* indexEnd;
 	
 	// read message from server
-	if((nbyte = recv(sockfd,buffer,200,0)) > 0) {
+	if((nbyte = recv(sockfd,buffer,MAX_PATHNAME,0)) > 0) {
 		// get return value
 		indexStart = strstr(buffer,"RETURN:") + strlen("RETURN:");
 		indexEnd = strchr(indexStart,' ');
 		strncpy(tmp,indexStart,indexEnd-indexStart); tmp[strlen(tmp)] = '\0';
-		*reVal = atoi(tmp);memset(tmp,0,200);
+		*reVal = atoi(tmp);memset(tmp,0,MAX_PATHNAME);
 
 		// get errno number
 		indexStart = strstr(indexEnd+1,"ERRNO:")+strlen("ERRNO:");
@@ -112,6 +112,41 @@ int readMsg(int sockfd, int* reVal, int* err) {
 	}
 	return nbyte;
 }
+
+int readMsgWithPatyload(int sockfd, int* reVal, int*err, void* p) {
+	
+	char* indexStart = NULL;
+	char* indexEnd = NULL;
+	char* buf = malloc(MAXMSGLEN);
+	int nbyte = 0;
+	char tmp[20]; // this buffer is used to convert integers
+	
+	// read message from server
+	if((nbyte = recv(sockfd,buf,MAX_PATHNAME,0)) > 0) {
+
+		// get return value
+		indexStart = strchr(buf,':')+1;
+		indexEnd = strchr(indexStart,' ');
+		strncpy(tmp,indexStart, indexEnd-indexStart);
+		*reVal = atoi(tmp); memset(tmp,0,20);
+
+		// get errno
+		indexStart = strchr(indexEnd + 1,':')+1;
+		indexEnd = strchr(indexStart,'\n');
+		strncpy(tmp,indexStart,indexEnd-indexStart);
+		*err = atoi(tmp);memset(tmp,0,20);
+
+		// get content
+		indexStart = indexEnd+1;
+		if(*reVal != nbyte) {
+			//printf("Weird! nbyte diff from client to server!\n");
+		}
+			memcpy(p,indexStart,*reVal);
+	}
+	return nbyte;
+}
+
+
 
 /** @brief our repleace ment for the close function from libc
  *	@param fd, file descriptor pointed to open file
@@ -130,6 +165,8 @@ int close(int fd) {
 	readMsg(sock,&reVal,&err);
 	orig_close(sock);
 	errno = err;
+
+	printf("mylib: close called%d\n", fd);
 	return reVal;
 }
 
@@ -156,7 +193,7 @@ int open(const char *pathname, int flags, ...) {
 	readMsg(sock,&reVal,&err);
 	orig_close(sock);
 	errno = err;
-	//printf("mylib: open called for path %s\n", pathname);
+	printf("mylib: open called for path %s\n", pathname);
 	return reVal;
 }
 
@@ -167,15 +204,25 @@ int open(const char *pathname, int flags, ...) {
  *  @return the actual bytes that have been read
  */ 
 int read(int fd, void *buffer, int nbyte) {
+	if(nbyte == 0)
+		return 0; // return 0 if requested size was 0
+	
 	// init network
 	int sock = connectServer();
-	int val = 0;
+	int reVal = 0;
+	int err = 0;
+
 	// send request
-	sendMsg(sock,"read");
+	char* pkt = readPktGen(fd,nbyte);
+
+	sendMsg(sock, pkt); free(pkt);
+
+	readMsgWithPatyload(sock, &reVal, &err, buffer);
+
 	orig_close(sock);
-	val = orig_read(fd,buffer,nbyte);
-	//printf("mylib: read called\n");
-	return val;
+	errno = err;
+	printf("mylib: read called\n");
+	return reVal;
 }
 
 /** @brief our repleace ment for the write function from libc
@@ -199,44 +246,65 @@ int write(int fd, void* buffer, int nbyte) {
 	readMsg(sock,&reVal,&err);
 	orig_close(sock);
 	errno = err;
-	//printf("mylib: write called,return %d\n", reVal);
+	printf("mylib: write called,return %d\n", reVal);
 	return reVal;
 }
 
-int stat(const char *path, struct stat *buf) {
-	int val = 0;
+int stat(const char *path, struct stat* buf) {
+	int reVal = 0;
+	int err =0;
 	// init network
 	int sock = connectServer();
+	char* pkt = statPktGen(path);
 	// send request
-	sendMsg(sock,"stat");
+	sendMsg(sock,pkt);
+
+	// get return value and errno
+	readMsgWithPatyload(sock, &reVal, &err, buf);
+
 	orig_close(sock);
-	val = orig_stat(path,buf);
-	//printf("mylib: lseek called\n");
-	return val;
+	printf("mylib: stat called\n");
+	errno = err;
+	return reVal;
 }
 
 int __xstat(int ver, const char * path, struct stat * stat_buf) {
-	int val = 0;
+	int reVal = 0;
+	int err = 0;
 	// init network
 	int sock = connectServer();
+	char* pkt = __xstatPktGen(ver, path);
 	// send request
-	sendMsg(sock,"__xstat");
+	sendMsg(sock,pkt);
+
+	// get return value, errno and content
+	readMsgWithPatyload(sock, &reVal, &err, stat_buf);
 	orig_close(sock);
-	val = orig___xstat(ver,path,stat_buf);
-	//printf("mylib: lseek called\n");
-	return val;
+	
+	printf("mylib: __xstat called\n");
+	errno = err;
+	return reVal;
 }
 
 int getdirentries(int fd, char *buf, size_t nbytes, off_t *basep) {
-	int size = 0;
+	int reVal = 0;
+	int err = 0;
+
 	// init network
 	int sock = connectServer();
+	char* pkt = getdirentriesPktGen(fd, nbytes, *basep);
+
 	// send request
-	sendMsg(sock,"getdirentries");
+	sendMsg(sock,pkt);
+	
+	//get return msg
+	readMsgWithPatyload(sock, &reVal, &err, buf);
+	*basep = *basep + reVal;
 	orig_close(sock);
-	size = orig_getdirentries(fd, buf, nbytes, basep);
-	//printf("mylib: lseek called\n");
-	return size;
+	
+	errno = err;
+	printf("mylib: getdirentries called\n");
+	return reVal;
 }
 
 
@@ -271,27 +339,39 @@ void freedirtree( struct dirtreenode* dt ) {
  *  @return the actual bytes that have been moved
  */
 int lseek(int fd, off_t offset, int whence){
-	int val = 0;
+	int reVal = 0;
+	int err = 0;
 	// init network
 	int sock = connectServer();
+	char* pkt = lseekPktGen(fd, offset, whence);
+
 	// send request
-	sendMsg(sock,"lseek");
+	sendMsg(sock,pkt); free(pkt);
+	// get retur value and errno
+	readMsg(sock,&reVal, &err);
+	
 	orig_close(sock);
-	val = orig_lseek(fd,offset,whence);
-	//printf("mylib: lseek called\n");
-	return val;
+	errno = err;
+	printf("mylib: lseek called\n");
+	return reVal;
 }
 
 int unlink(const char *path) {
-	int val = 0;
+	int reVal = 0;
+	int err = 0;
 	// init network
 	int sock = connectServer();
+	char* pkt = unlinkPktGen(path);
+
 	// send request
-	sendMsg(sock,"unlink");
-	orig_unlink(path);
-	val = orig_unlink(path);
-	//printf("mylib: lseek called\n");
-	return val;	
+	sendMsg(sock,pkt); free(pkt);
+	// get retur value and errno
+	readMsg(sock,&reVal, &err);
+	
+	orig_close(sock);
+	errno = err;
+	//printf("mylib: unlink called\n");
+	return reVal;	
 }
 
 // This function is automatically called when program is started

@@ -17,6 +17,8 @@ int main(int argc, char**argv) {
 	char buf[MAXMSGLEN];
 	char *serverport;
 	unsigned short port;
+	int optval = 1;
+	int pid;
 	int sockfd, sessfd, rv;
 	struct sockaddr_in srv, cli;
 	socklen_t sa_size;
@@ -36,6 +38,7 @@ int main(int argc, char**argv) {
 	srv.sin_addr.s_addr = htonl(INADDR_ANY);	// don't care IP address
 	srv.sin_port = htons(port);			// server port
 
+	setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof optval);
 	// bind to our port
 	rv = bind(sockfd, (struct sockaddr*)&srv, sizeof(struct sockaddr));
 	if (rv<0) err(1,0);
@@ -43,40 +46,71 @@ int main(int argc, char**argv) {
 	// start listening for connections
 	rv = listen(sockfd, 5);
 	if (rv<0) err(1,0);
-	
+	sa_size = sizeof(struct sockaddr_in);
+
 	while(1) {
-		
 		// wait for next client, get session socket
-		sa_size = sizeof(struct sockaddr_in);
 		sessfd = accept(sockfd, (struct sockaddr *)&cli, &sa_size);
-		if (sessfd<0) err(1,0);
-		
-		// get messages and send replies to this client, until it goes away
-		while ( (rv=recv(sessfd, buf, MAXMSGLEN, 0)) > 0) {
-			int reVal = 0;
-			int err = 0;
-			// check first line
-			if(strstr(buf,"\n") != NULL) {
-				//check pkt type
-				if(strncmp(buf, "OPEN",4) == 0) 
-					reVal = openPkt(buf,&err);
-				if(strncmp(buf, "CLOSE",5) == 0) 
-					reVal = closePkt(buf,&err);
-				if(strncmp(buf, "WRITE",5) == 0) 
-					reVal = writePkt(buf,&err);
+		if (sessfd<0) 
+			err(1,0);
+		else {
+			if((pid = fork())< 0) {
+				printf("fork failed!\n");
+				exit(-1);
+			} else if(pid == 0) {
+				close(sessfd);
+				continue;
+			} else if(pid > 0) {
+				// child process
+				// get messages and send replies to this client, until it goes away
+				if((rv=recv(sessfd, buf, MAXMSGLEN, 0)) > 0) {
+					int reVal = 0;
+					int err = 0;
+					int payloadSize = 0;
+					char* payload = NULL;
+					char* rePkt = NULL;
+
+					// check first line
+					if(strstr(buf,"\n") != NULL) {
+						//check pkt type
+						if(strncmp(buf, "OPEN",4) == 0) 
+							reVal = openPkt(buf,&err);
+						if(strncmp(buf, "CLOSE",5) == 0) 
+							reVal = closePkt(buf,&err);
+						if(strncmp(buf, "WRITE",5) == 0) 
+							reVal = writePkt(buf,&err);
+						if(strncmp(buf, "READ", 4) == 0)
+							reVal = readPkt(buf,&err, &payloadSize, &payload);
+						if(strncmp(buf, "UNLINK", 6) ==0)
+							reVal = unlinkPkt(buf, &err);
+						if(strncmp(buf, "LSEEK", 5) == 0)
+							reVal = lseekPkt(buf, &err);
+						if(strncmp(buf, "STAT", 4) == 0)
+							reVal = statPkt(buf, &err, &payloadSize, &payload);
+						if(strncmp(buf, "__XSTAT", 7) == 0) 
+							reVal = __xstatPkt(buf, &err, &payloadSize, &payload);
+						if(strncmp(buf, "GENDIRENTRIES", strlen("GENDIRENTRIES")) ==0 )
+							reVal = gendirentriesPkt(buf, &err, &payloadSize, &payload);
+					}
+
+
+					// send return val back
+					if(payload == NULL)
+						rePkt = rePktGen(reVal,err);
+					else
+						rePkt =re_PLDPkt_Gen(reVal,err,payloadSize,payload);
+
+					printf("send pkt!\n%s\n", rePkt);
+					send(sessfd,rePkt,strlen(rePkt),0);
+					free(rePkt);
+					memset(buf,0,MAXMSGLEN);
+				}
+				// either client closed connection, or error
+				if (rv<0) err(1,0);
+				// close socket
+				close(sessfd);
 			}
-
-
-			// send return val back
-			char* rePkt = rePktGen(reVal,err);
-			send(sessfd,rePkt,strlen(rePkt),0);
-			free(rePkt);
-			memset(buf,0,MAXMSGLEN);
 		}
-
-		// either client closed connection, or error
-		if (rv<0) err(1,0);
-		close(sessfd);
 	}
 	
 	// close socket
